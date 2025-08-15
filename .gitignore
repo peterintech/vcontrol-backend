@@ -1,0 +1,6 @@
+__pycache__
+*.pyc
+
+pretrained_models/
+# remove test files
+*.wav
