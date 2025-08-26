@@ -5,9 +5,11 @@ import torch
 import torchaudio
 from speechbrain.inference.speaker import EncoderClassifier
 from speechbrain.inference import EncoderDecoderASR
+from pydub import AudioSegment
 import traceback
 from typing import List
 import json
+import os
 
 # ---------------------------
 # App Initialization
@@ -38,9 +40,30 @@ except Exception as e:
     traceback.print_exc()
 
 # ---------------------------
+# Helper: Ensure WAV format
+# ---------------------------
+def ensure_wav(input_path):
+    """
+    Converts input audio to wav if needed.
+    Returns path to wav file.
+    """
+    ext = os.path.splitext(input_path)[-1].lower()
+    if ext == ".wav":
+        return input_path
+
+    wav_path = input_path.rsplit(".", 1)[0] + ".wav"
+    try:
+        audio = AudioSegment.from_file(input_path)
+        audio.export(wav_path, format="wav")
+        return wav_path
+    except Exception as e:
+        raise RuntimeError(f"Failed to convert {input_path} to wav: {e}")
+
+# ---------------------------
 # Audio Preprocessing
 # ---------------------------
 def preprocess_audio(file_path, target_sr=16000):
+    file_path = ensure_wav(file_path)  # 🔑 make sure it’s wav
     signal, fs = torchaudio.load(file_path)
     if fs != target_sr:
         signal = torchaudio.transforms.Resample(orig_freq=fs, new_freq=target_sr)(signal)
@@ -74,9 +97,7 @@ async def enroll(files: List[UploadFile] = File(...)):
         average_embedding = torch.stack(embeddings_list).mean(dim=0)
         average_embedding = torch.nn.functional.normalize(average_embedding, p=2, dim=0)
 
-        return {
-            "average_embedding": average_embedding.tolist()
-        }
+        return {"average_embedding": average_embedding.tolist()}
     except Exception as e:
         error_msg = f"Error in /enroll: {e}"
         print(error_msg)
@@ -118,6 +139,8 @@ async def transcribe(file: UploadFile = File(...)):
         path = f"temp_{file.filename}"
         with open(path, "wb") as f:
             f.write(await file.read())
+
+        path = ensure_wav(path)  # 🔑 make sure it’s wav
 
         text = asr_model.transcribe_file(path)
         return {"transcription": text}
